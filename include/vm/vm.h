@@ -121,4 +121,6 @@ enum vm_type page_get_type (struct page *page);
 // void destructor_per_elem(struct hash_elem *e, void *aux);
 // void vm_destroy(struct hash *vm);
 
+void vme_init(struct vm_entry*vme);
+bool insert_vme (struct hash *vm, struct vm_entry*vme);
 #endif  /* VM_VM_H */

@@ -191,6 +191,19 @@ struct vm_entry {
     struct hash_elem elem;
 };
 
+void vme_init(struct vm_entry*vme){
+	// TODO: list_elme 멤버변수 확인
+	vme->type = VM_UNINIT;
+	vme->vaddr = NULL;
+	vme->writable = false;
+	vme->is_loaded = false;
+	vme->file = NULL;
+	vme->offset = 0;
+	vme->read_bytes = 0;
+	vme->zero_bytes = 0;
+	vme->swap_slot = 0;
+}
+
 // 해시 함수
 uint64_t vm_hash_func(const struct hash_elem *e, void *aux) {
     struct vm_entry *i = hash_entry(e, struct vm_entry, elem);

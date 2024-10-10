@@ -688,10 +688,14 @@ static bool install_page(void *upage, void *kpage, bool writable);
  * 그렇지 않은 경우 읽기 전용입니다.
  *
  * 성공 시 true를 반환하고, 메모리 할당 오류나 디스크 읽기 오류가 발생하면 false를 반환합니다. */
+
+#include "vm/vm.h"
+
 static bool
 load_segment(struct file *file, off_t ofs, uint8_t *upage,
 			 uint32_t read_bytes, uint32_t zero_bytes, bool writable)
 {
+	struct thread* curr = thread_current();
 	ASSERT((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT(pg_ofs(upage) == 0);
 	ASSERT(ofs % PGSIZE == 0);
@@ -705,31 +709,21 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* 메모리 페이지를 가져옵니다. */
-		uint8_t *kpage = palloc_get_page(PAL_USER);
-		if (kpage == NULL)
-			return false;
-
-		/* 이 페이지를 로드합니다. */
-		if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
-		{
-			palloc_free_page(kpage);
-			return false;
-		}
-		memset(kpage + page_read_bytes, 0, page_zero_bytes);
-
-		/* 프로세스의 주소 공간에 페이지를 추가합니다. */
-		if (!install_page(upage, kpage, writable))
-		{
-			printf("fail\n");
-			palloc_free_page(kpage);
-			return false;
-		}
+		// vm_entry 생성 및 해시테이블에 삽입
+		struct vm_entry* vme = palloc_get_page(0);
+		vme_init(vme);
+		vme->type  = VM_FILE;
+		vme->file = file;
+		vme->offset = ofs;
+		vme->read_bytes = page_read_bytes;
+		vme->zero_bytes = page_zero_bytes;
+		insert_vme(&curr->spt.vm, vme);
 
 		/* 다음으로 진행합니다. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
