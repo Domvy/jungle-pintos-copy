@@ -16,6 +16,7 @@ struct vm_entry {
     struct hash_elem elem;
 };
 
+void init_vme( struct vm_entry *vme );
 bool insert_vme( struct hash *vm, struct vm_entry *vme );
 bool delete_vme( struct hash *vm, struct vm_entry *vme );
 struct vm_entry *find_vme( void *vaddr );
