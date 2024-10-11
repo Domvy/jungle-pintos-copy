@@ -596,7 +596,7 @@ void process_close_file( int fd ) {
  * UPAGE는 이미 매핑되어 있으면 안 됩니다.
  * KPAGE는 palloc_get_page()로 사용자 풀에서 얻은 페이지여야 합니다.
  * 성공 시 true를 반환하고, UPAGE가 이미 매핑되어 있거나 메모리 할당이 실패한 경우 false를 반환합니다. */
-static bool install_page( void *upage, void *kpage, bool writable ) {
+bool install_page( void *upage, void *kpage, bool writable ) {
     struct thread *t = thread_current();
 
     /* 해당 가상 주소에 이미 페이지가 없는지 확인한 후, 페이지를 매핑합니다. */
@@ -664,6 +664,8 @@ static bool setup_stack( struct intr_frame *if_ ) {
 
             // 새로운 vm_entry 생성 및 메모리 할당
             struct vm_entry *vme = malloc( sizeof( struct vm_entry ) );
+            struct page *page = (struct page *)malloc( sizeof( struct page ) );
+
             init_vme( vme );
             if ( vme == NULL ) {
                 palloc_free_page( kpage );
@@ -673,6 +675,7 @@ static bool setup_stack( struct intr_frame *if_ ) {
             // vm_entry 필드 초기화
             vme->type = VM_ANON;                              // 스택에 맞는 타입 설정
             vme->vaddr = ( (uint8_t *)USER_STACK ) - PGSIZE;  // 스택의 가상 주소
+            page->va = ( (uint8_t *)USER_STACK ) - PGSIZE;    //
             vme->writable = true;                             // 스택은 쓰기 가능
             vme->is_loaded = true;                            // 이미 로드된 상태
 

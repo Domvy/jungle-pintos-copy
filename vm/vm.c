@@ -7,6 +7,10 @@
 #include "hash.h"
 #include "vm/page.h"
 #include "vm/uninit.h"
+#include "userprog/process.h"
+#include <list.h>
+
+struct list frame_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -59,8 +63,6 @@ err:
     return false;
 }
 
-#include "vm/page.h"
-
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *spt_find_page( struct supplemental_page_table *spt UNUSED, void *va UNUSED ) {
     struct vm_entry *vme = find_vme( va );
@@ -98,19 +100,6 @@ static struct frame *vm_evict_frame( void ) {
     return NULL;
 }
 
-/* palloc() and get frame. If there is no available page, evict the page
- * and return it. This always return valid address. That is, if the user pool
- * memory is full, this function evicts the frame to get the available memory
- * space.*/
-static struct frame *vm_get_frame( void ) {
-    struct frame *frame = NULL;
-    /* TODO: Fill this function. */
-
-    ASSERT( frame != NULL );
-    ASSERT( frame->page == NULL );
-    return frame;
-}
-
 /* Growing the stack. */
 static void vm_stack_growth( void *addr UNUSED ) {}
 
@@ -134,25 +123,46 @@ void vm_dealloc_page( struct page *page ) {
     free( page );
 }
 
+/*
+    va > (vm_claim_page) > page > (vm_do_claim_page) > frame > (swap_in) > disk
+*/
+
+/* palloc() and get frame. If there is no available page, evict the page
+ * and return it. This always return valid address. That is, if the user pool
+ * memory is full, this function evicts the frame to get the available memory
+ * space.*/
+static struct frame *vm_get_frame( void ) {
+    struct frame *frame = palloc_get_page( PAL_USER );
+
+    if ( frame == NULL )
+        PANIC( "TODO: palloc_get_page 할당 안됨" );
+
+    list_insert( &frame_table, &frame->frame_elem );  // TODO: frame_table 전용 util 분리하기
+
+    ASSERT( frame != NULL );
+    ASSERT( frame->page == NULL );
+    return frame;
+}
+
 /* Claim the page that allocate on VA. */
 bool vm_claim_page( void *va UNUSED ) {
-    struct page *page = NULL;
-    /* TODO: Fill this function */
-
+    struct vm_entry *vme = find_vme( va );
+    struct page *page = vme->page;
     return vm_do_claim_page( page );
 }
 
 /* Claim the PAGE and set up the mmu. */
-static bool vm_do_claim_page( struct page *page ) {
-    struct frame *frame = vm_get_frame();
+static bool vm_do_claim_page( struct page *uva ) {  // kva = frame / uva = page
+    struct vm_entry *vme = find_vme( uva );
+    struct frame *kva = vm_get_frame();
 
     /* Set links */
-    frame->page = page;
-    page->frame = frame;
+    kva->page = uva;
+    uva->frame = kva;
 
-    /* TODO: Insert page table entry to map page's VA to frame's PA. */
-
-    return swap_in( page, frame->kva );
+    /* Insert page table entry to map page's VA to frame's PA. */
+    install_page( uva, kva, vme->writable );
+    return swap_in( uva, kva->kva );
 }
 
 /* Initialize new supplemental page table */
