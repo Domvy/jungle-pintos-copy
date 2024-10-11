@@ -44,13 +44,20 @@ struct thread;
  * DO NOT REMOVE/MODIFY PREDEFINED MEMBER OF THIS STRUCTURE. */
 struct page {
     const struct page_operations *operations;
-    void *va;            /* Address in terms of user space */
-    struct frame *frame; /* Back reference for frame */
+    void *va;            /* Address in terms of user space , 사용자 공간 측면에서의 주소 -> 사용자 공간에 있는 페이지의 주소 */
+    struct frame *frame; /* Back reference for frame 프레임의 역참조 -> 해당 페이지가 어떤 프레임 참조하는지 */
 
     /* Your implementation */
-
+    struct hash_elem hash_elem; /*Hash table element*/
+    bool writable;
     /* Per-type data are binded into the union.
-     * Each function automatically detects the current union */
+     * Each function automatically detects the current union
+       유형별 데이터는 유니언에 바인딩된다.
+       각 함수는 현재 유니언을 자동으로 감지한다.
+
+       유니언 자료형은 하나의 메모리 영역에 다른 타입의 데이터를 저장하는 것을 허용하는 특별한 자료형이다.
+       하나의 유니언은 여러 개의 멤버를 가질 수 있지만, 한 번에 멤버 중 하나의 값을 가질 수 있다.
+       */
     union {
         struct uninit_page uninit;
         struct anon_page anon;
@@ -63,8 +70,9 @@ struct page {
 
 /* The representation of "frame" */
 struct frame {
-    void *kva;
-    struct page *page;
+    void *kva;                    // 프레임의 커널 가상 주소를 가리키는 포인터 -> 페이지 프레임이 실제로 메모리에서 어디에 위치하는지
+    struct page *page;            // 프레임이 참조하는 페이지를 가리키는 포인터 -> 해당 프레임이 어떤 페이지를 가리키는지
+    struct list_elem frame_elem;  // frame 구조체의 list_elem
 };
 
 /* The function table for page operations.
@@ -88,7 +96,7 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
     // = virtual address space
-    struct hash vm;
+    struct hash hash_table;
 };
 
 #include "threads/thread.h"

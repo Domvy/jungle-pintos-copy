@@ -45,7 +45,7 @@ struct vm_entry *find_vme( void *vaddr ) {
     struct vm_entry temp_entry;
     temp_entry.vaddr = vaddr;
 
-    struct hash_elem *found = hash_find( &spt->vm, &temp_entry.elem );
+    struct hash_elem *found = hash_find( &spt->hash_table, &temp_entry.elem );
 
     if ( hash_empty( found ) ) return NULL;
     return hash_entry( found, struct vm_entry, elem );

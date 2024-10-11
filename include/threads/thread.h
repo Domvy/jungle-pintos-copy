@@ -131,6 +131,9 @@ struct thread {
     int exit_status;
 
     struct file *running;  // 추가
+
+    /* VM */
+    void *stack_rsp;
 };
 
 /* If false (default), use round-robin scheduler.

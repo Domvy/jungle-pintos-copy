@@ -1,12 +1,29 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
+// #include "threads/malloc.h"
+// #include "threads/vaddr.h"
+// #include "vm/vm.h"
+// #include "vm/inspect.h"
+// #include "hash.h"
+#include "vm/page.h"
+// #include "vm/uninit.h"
+
+// // #include "lib/kernel/hash.h"
+// #include "threads/mmu.h"
+// #include "threads/thread.h"
+// #include "userprog/process.h"
+
 #include "threads/malloc.h"
-#include "threads/vaddr.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
-#include "hash.h"
-#include "vm/page.h"
-#include "vm/uninit.h"
+#include "lib/kernel/hash.h"
+#include "threads/vaddr.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
+#include "threads/thread.h"
+#include "userprog/process.h"
+
+struct list frame_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -19,6 +36,7 @@ void vm_init( void ) {
     register_inspect_intr();
     /* DO NOT MODIFY UPPER LINES. */
     /* TODO: Your code goes here. */
+    list_init( &frame_table );
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -53,7 +71,37 @@ bool vm_alloc_page_with_initializer( enum vm_type type, void *upage, bool writab
          * TODO: and then create "uninit" page struct by calling uninit_new. You
          * TODO: should modify the field after calling the uninit_new. */
 
+        /* 페이지를 만들고 VM 유형에 따라 이니셜라이저를 가져와서
+         * uninit_new를 호출하여 "uninit" 페이지 구조체를 만듭니다.
+         * uninit_new를 호출한 후에 필드를 수정해야 합니다.
+         */
+
+        struct page *page = (struct page *)malloc( sizeof( struct page ) );
+        if ( page == NULL ) {
+            return false;
+        }
+        page->va = upage;
+        // page_initializer new_initializer = NULL; // TODO: 확인 필요
+        vm_initializer *new_initializer = NULL;
+
+        switch ( VM_TYPE( type ) ) {
+            case VM_ANON:
+                new_initializer = anon_initializer;
+                break;
+            case VM_FILE:
+                new_initializer = file_backed_initializer;
+                break;
+        }
+        if ( new_initializer == NULL ) {
+            free( page );
+            return false;
+        }
+        uninit_new( page, upage, init, type, aux, new_initializer );
+        page->writable = writable;
+
         /* TODO: Insert the page into the spt. */
+        /* 페이지를 spt에 삽입합니다. */
+        return spt_insert_page( spt, page );
     }
 err:
     return false;
@@ -61,21 +109,40 @@ err:
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *spt_find_page( struct supplemental_page_table *spt UNUSED, void *va UNUSED ) {
-    struct page *page = NULL;
-    /* TODO: Fill this function. */
+    struct page *page = malloc( sizeof( struct page ) );
+    struct hash_elem *e;
+    if ( page == NULL ) {
+        return NULL;
+    }
 
-    return page;
+    page->va = pg_round_down( va );
+    e = hash_find( &spt->hash_table, &page->hash_elem );
+
+    if ( e != NULL ) {
+        struct page *found_page = hash_entry( e, struct page, hash_elem );
+        free( page );
+        return found_page;
+    } else {
+        free( page );
+        return NULL;
+    }
 }
 
 /* Insert PAGE into spt with validation. */
 bool spt_insert_page( struct supplemental_page_table *spt UNUSED, struct page *page UNUSED ) {
     int succ = false;
-    /* TODO: Fill this function. */
 
+    if ( is_user_vaddr( page->va ) ) {
+        if ( spt_find_page( spt, page->va ) == NULL ) {
+            hash_insert( &spt->hash_table, &page->hash_elem );
+            succ = true;
+        }
+    }
     return succ;
 }
 
 void spt_remove_page( struct supplemental_page_table *spt, struct page *page ) {
+    hash_delete( &spt->hash_table, &page->hash_elem );
     vm_dealloc_page( page );
     return true;
 }
@@ -102,8 +169,23 @@ static struct frame *vm_evict_frame( void ) {
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
 static struct frame *vm_get_frame( void ) {
-    struct frame *frame = NULL;
+    struct frame *frame = (struct frame *)malloc( sizeof( struct frame ) );  // user_pool 에서 frame 가져오고, kva return해서 frame에 넣어준다.
     /* TODO: Fill this function. */
+    frame->kva = palloc_get_page( PAL_USER );
+
+    if ( frame->kva == NULL ) {  // frame에서 가용한 page가 없다면
+        /* 해당 로직은 evict한 frame을 받아오기에 이미 Frame_Table 존재해서 list_push_back()할 필요 없음 */
+        frame = vm_evict_frame();  // 쫓아냄
+        frame->page = NULL;
+        // free(frame);
+        //  PANIC("todo);
+        return frame;
+    }
+
+    // lock_acquire( &frame_table_lock );
+    list_push_back( &frame_table, &frame->frame_elem );
+    // lock_release( &frame_table_lock );
+    frame->page = NULL;  // 새 frame을 가져왔으니 page의 멤버를 초기화
 
     ASSERT( frame != NULL );
     ASSERT( frame->page == NULL );
@@ -120,10 +202,40 @@ static bool vm_handle_wp( struct page *page UNUSED ) {}
 bool vm_try_handle_fault( struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED ) {
     struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
     struct page *page = NULL;
-    /* TODO: Validate the fault */
-    /* TODO: Your code goes here */
+    if ( addr == NULL )
+        return false;
 
-    return vm_do_claim_page( page );
+    if ( is_kernel_vaddr( addr ) )
+        return false;
+
+    // true: addr에 매핑된 physical page가 존재하지 않는 경우에 해당한다.
+    // false: read only page에 writing 작업을 하려는 시도에 해당한다.
+    if ( not_present )  // 접근한 메모리의 physical page가 존재하지 않은 경우
+    {
+        /* TODO: Validate the fault */
+        // 페이지 폴트가 스택 확장에 대한 유효한 경우인지를 확인한다.
+
+        // void *rsp = f->rsp;  // user access인 경우 rsp는 유저 stack을 가리킨다.
+        // if ( !user )         // kernel access인 경우 thread에서 rsp를 가져와야 한다.
+        //     rsp = thread_current()->stack_rsp;
+
+        // 스택 확장으로 처리할 수 있는 폴트인 경우, vm_stack_growth를 호출한다.
+        // 1. addr이 rsp보다 위에있으면 안되고,
+        // 2. stack_bottom보다 위에 있으면 안되고,
+        // 3. addr이 USER_STACK- (1<<20) 보다 .아래에 있으면 안된다.
+        // if (USER_STACK - (1 << 20) <= rsp - 8  && stack_bottom > addr && addr >= (USER_STACK - (1<<20)) && addr < rsp - 8 )
+        // 	vm_stack_growth(addr);
+        // if ( USER_STACK - ( 1 << 20 ) <= rsp - 8 && rsp - 8 <= addr && addr <= USER_STACK )
+        //     vm_stack_growth( addr );
+
+        page = spt_find_page( spt, addr );
+        if ( page == NULL )
+            return false;
+        if ( write == 1 && page->writable == 0 )  // write 불가능한 페이지에 write 요청한 경우
+            return false;
+        return vm_do_claim_page( page );
+    }
+    return false;
 }
 
 /* Free the page.
@@ -136,28 +248,44 @@ void vm_dealloc_page( struct page *page ) {
 /* Claim the page that allocate on VA. */
 bool vm_claim_page( void *va UNUSED ) {
     struct page *page = NULL;
-    /* TODO: Fill this function */
 
+    /* 물리 프레임과 연결을 할 페이지를 SPT를 통해서 찾아준다.*/
+    page = spt_find_page( &thread_current()->spt, va );
+
+    if ( page == NULL )
+        return false;
     return vm_do_claim_page( page );
 }
 
 /* Claim the PAGE and set up the mmu. */
 static bool vm_do_claim_page( struct page *page ) {
     struct frame *frame = vm_get_frame();
+    if ( frame == NULL ) {
+        return false;
+    }
 
     /* Set links */
     frame->page = page;
     page->frame = frame;
 
     /* TODO: Insert page table entry to map page's VA to frame's PA. */
-
+    /* 페이지 테이블 항목을 삽입하여 페이지의 VA를 프레임의 PA에 매핑합니다. */
+    /*pml4_get_page는 가상주소를 넣어 해당 물리주소를 찾고 그에 해당하는
+    커널 가상 주소를 반환한다.*/
+    if ( pml4_get_page( thread_current()->pml4, page->va ) == NULL ) {
+        if ( !pml4_set_page( thread_current()->pml4, page->va, frame->kva, page->writable ) ) {
+            vm_dealloc_page( page );
+            return false;
+        }
+    }
+    /* 해당 페이지를 물리 메모리에 올려준다.*/
     return swap_in( page, frame->kva );
 }
 
 /* Initialize new supplemental page table */
 
 void supplemental_page_table_init( struct supplemental_page_table *spt UNUSED ) {
-    bool success = hash_init( &spt->vm, vm_hash_func, vm_less_func, NULL );
+    hash_init( &spt->hash_table, vm_hash_func, vm_less_func, NULL );
 }
 
 /* Copy supplemental page table from src to dst */

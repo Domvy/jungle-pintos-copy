@@ -21,8 +21,8 @@
 
 void syscall_entry( void );
 void syscall_handler( struct intr_frame * );
-struct vm_entry *check_address( void *addr );
-void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED );
+void check_address( uintptr_t addr );
+// void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED );
 void halt( void );
 void exit( int status );
 int fork( const char *thread_name, struct intr_frame *f );
@@ -240,7 +240,7 @@ int read( int fd, void *buffer, unsigned size ) {
     if ( fd == STDOUT_FILENO ) return -1;
 
     // 버퍼의 주소를 검증한다.
-    check_address_buffer( buffer, size, false, NULL );
+    // check_address_buffer( buffer, size, false, NULL );
 
     // 데이터를 저장할 위치를 가리킨다.
     char *ptr = (char *)buffer;
@@ -279,7 +279,7 @@ int write( int fd, void *buffer, unsigned size ) {
     if ( fd == STDIN_FILENO ) return -1;
 
     // 버퍼의 주소를 검증한다.
-    check_address_buffer( buffer, size, true, NULL );
+    // check_address_buffer( buffer, size, true, NULL );
     int bytes_write = 0;
 
     // 파일 시스템 작업을 하는 동안, 락을 걸어준다.
@@ -328,29 +328,42 @@ void close( int fd ) {
     process_close_file( fd );
 }
 
-struct vm_entry *check_address( void *addr ) {
-    // if ( addr == NULL || !is_user_vaddr( addr ) ) {
-    //     exit( -1 );
-    // }
-    if ( addr != NULL ) {
-        struct vm_entry *vme = find_vme( addr );
-        if ( vme != NULL )
-            return vme;
+void check_address( uintptr_t addr ) {
+    if ( addr == NULL ) {
+        exit( -1 );
     }
-}
+    if ( !is_user_vaddr( addr ) ) {
+        exit( -1 );
+    }
 
-void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED ) {
-    struct vm_entry *vme;
-    for ( int i = 0; i < size; i++ ) {
-        void *addr = (char *)buffer + i;
-        vme = check_address( addr );
+    // if (pml4_get_page(thread_current()->pml4, (void *)addr) == NULL) {
+    // 	exit(-1);
+    // }
+    // if(spt_find_page(&thread_current()->spt, (void *)addr) == NULL) {
+    // 	exit(-1);
+    // }
 
-        if ( vme != NULL ) {
-            if ( !write_mode || ( write_mode && vme->writable ) ) {
-                continue;
-            }
-        }
+    if ( KERN_BASE < addr || addr < 0 ) {
+        exit( -1 );
+    }
 
+    if ( KERN_BASE < addr + 8 || addr + 8 < 0 ) {
         exit( -1 );
     }
 }
+
+// void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED ) {
+//     struct vm_entry *vme;
+//     for ( int i = 0; i < size; i++ ) {
+//         void *addr = (char *)buffer + i;
+//         vme = check_address( addr );
+
+//         if ( vme != NULL ) {
+//             if ( !write_mode || ( write_mode && vme->writable ) ) {
+//                 continue;
+//             }
+//         }
+
+//         exit( -1 );
+//     }
+// }

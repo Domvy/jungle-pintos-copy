@@ -614,71 +614,64 @@ static bool install_page( void *upage, void *kpage, bool writable ) {
  * 그렇지 않은 경우 읽기 전용입니다.
  *
  * 성공 시 true를 반환하고, 메모리 할당 오류나 디스크 읽기 오류가 발생하면 false를 반환합니다. */
-static bool load_segment( struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable ) {
+
+bool lazy_load_segment( struct page *page, void *aux );
+static bool
+load_segment( struct file *file, off_t ofs, uint8_t *upage,
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable ) {
     ASSERT( ( read_bytes + zero_bytes ) % PGSIZE == 0 );
     ASSERT( pg_ofs( upage ) == 0 );
     ASSERT( ofs % PGSIZE == 0 );
-    struct thread *curr = thread_current();
 
-    file_seek( file, ofs );
     while ( read_bytes > 0 || zero_bytes > 0 ) {
-        /* 이 페이지를 채우는 방법을 계산합니다.
-         * FILE에서 PAGE_READ_BYTES 바이트를 읽고
-         * 마지막 PAGE_ZERO_BYTES 바이트를 0으로 채웁니다. */
+        /* Do calculate how to fill this page.
+         * We will read PAGE_READ_BYTES bytes from FILE
+         * and zero the final PAGE_ZERO_BYTES bytes. */
+        /* 이 페이지를 채우는 방법을 계산하세요.
+           FILE에서 PAGE_READ_BYTES 바이트를 읽고
+           최종 PAGE_ZERO_BYTES 바이트를 0으로 합니다. */
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-        // vm_entry 생성 및 해시테이블에 삽입
-        struct vm_entry *vme = palloc_get_page( 0 );
-        init_vme( vme );
-        vme->type = VM_FILE;
-        vme->file = file;
-        vme->offset = ofs;
-        vme->read_bytes = page_read_bytes;
-        vme->zero_bytes = page_zero_bytes;
-        insert_vme( &curr->spt.vm, vme );
+        /* TODO: Set up aux to pass information to the lazy_load_segment. */
+        /* lazy_load_segment에 정보를 전달하도록 aux를 설정합니다.*/
+        // void **aux = (file, &page_read_bytes, &page_zero_bytes, &ofs);
 
-        /* 다음으로 진행합니다. */
+        struct lazy_load_arg *lazy_load_arg = (struct lazy_load_arg *)malloc( sizeof( struct lazy_load_arg ) );
+        lazy_load_arg->file = file;
+        lazy_load_arg->ofs = ofs;
+        lazy_load_arg->read_bytes = page_read_bytes;
+        lazy_load_arg->zero_bytes = page_zero_bytes;
+
+        if ( !vm_alloc_page_with_initializer( VM_ANON, upage,
+                                              writable, lazy_load_segment, lazy_load_arg ) )
+            return false;
+
+        /* Advance. */
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
+        ofs += page_read_bytes;
     }
     return true;
 }
-
 /* USER_STACK에 0으로 채워진 페이지를 매핑하여 최소한의 스택을 만듭니다. */
-static bool setup_stack( struct intr_frame *if_ ) {
-    uint8_t *kpage;
+static bool
+setup_stack( struct intr_frame *if_ ) {
     bool success = false;
+    void *stack_bottom = (void *)( ( (uint8_t *)USER_STACK ) - PGSIZE );
+    thread_current()->stack_rsp = stack_bottom;
+    // printf("setup_stack \n");
 
-    kpage = palloc_get_page( PAL_USER | PAL_ZERO );
-    if ( kpage != NULL ) {
-        success = install_page( ( (uint8_t *)USER_STACK ) - PGSIZE, kpage, true );
+    /* 스택을 stack_bottom에 매핑하고 즉시 페이지를 요구한다.
+     * 성공하면 그에 따라 rsp를 설정한다.
+     * 페이지가 스택임을 표시해야 한다.
+     */
+
+    if ( vm_alloc_page( VM_ANON | VM_MARKER_0, stack_bottom, true ) ) {
+        success = vm_claim_page( stack_bottom );
         if ( success ) {
-            if_->rsp = USER_STACK;  // 스택 포인터 설정
-
-            // 새로운 vm_entry 생성 및 메모리 할당
-            struct vm_entry *vme = malloc( sizeof( struct vm_entry ) );
-            init_vme( vme );
-            if ( vme == NULL ) {
-                palloc_free_page( kpage );
-                return false;
-            }
-
-            // vm_entry 필드 초기화
-            vme->type = VM_ANON;                              // 스택에 맞는 타입 설정
-            vme->vaddr = ( (uint8_t *)USER_STACK ) - PGSIZE;  // 스택의 가상 주소
-            vme->writable = true;                             // 스택은 쓰기 가능
-            vme->is_loaded = true;                            // 이미 로드된 상태
-
-            // vm 해시 테이블에 vm_entry 삽입
-            if ( !insert_vme( &thread_current()->spt.vm, vme ) ) {
-                free( vme );
-                palloc_free_page( kpage );
-                return false;
-            }
-        } else {
-            palloc_free_page( kpage );
+            if_->rsp = USER_STACK;
         }
     }
 
@@ -689,8 +682,29 @@ static bool setup_stack( struct intr_frame *if_ ) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool lazy_load_segment( struct page *page, void *aux ) {
+bool lazy_load_segment( struct page *page, void *aux ) {
     /* TODO: Load the segment from the file */
     /* TODO: This called when the first page fault occurs on address VA. */
     /* TODO: VA is available when calling this function. */
+    /* 1. 파일에서 세그먼트를 로드합니다.
+       2. 주소 VA에서 첫 번째 페이지 오류가 발생하면 호출됩니다.
+       3. 이 함수를 호출할 때 VA를 사용할 수 있다.*/
+
+    // void **aux_ = (void **)aux;
+    // struct file *file = ((struct file **)aux_)[0];
+    // size_t *page_read_bytes = ((size_t *)aux_)[1];
+    // size_t *page_zero_bytes = ((size_t *)aux_)[2];
+    // off_t *ofs = ((off_t *)aux_)[3];
+
+    struct lazy_load_arg *lazy_load_arg = (struct lazy_load_arg *)aux;
+    file_seek( lazy_load_arg->file, lazy_load_arg->ofs );
+
+    if ( file_read( lazy_load_arg->file, page->frame->kva, lazy_load_arg->read_bytes ) != (int)( lazy_load_arg->read_bytes ) ) {
+        palloc_free_page( page->frame->kva );
+        return false;
+    }
+
+    memset( page->frame->kva + lazy_load_arg->read_bytes, 0, lazy_load_arg->zero_bytes );
+
+    return true;
 }
