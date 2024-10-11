@@ -17,10 +17,12 @@
 #include "filesys/file.h"
 #include "threads/synch.h"
 #include "lib/string.h"
+#include "vm/page.h"
 
 void syscall_entry( void );
 void syscall_handler( struct intr_frame * );
 void check_address( void *addr );
+void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED );
 void halt( void );
 void exit( int status );
 int fork( const char *thread_name, struct intr_frame *f );
@@ -325,6 +327,22 @@ void close( int fd ) {
 
 void check_address( void *addr ) {
     if ( addr == NULL || !is_user_vaddr( addr ) ) {
+        exit( -1 );
+    }
+}
+
+void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED ) {
+    struct vm_entry *vme;
+    for ( int i = 0; i < size; i++ ) {
+        void *addr = (char *)buffer + i;
+        vme = check_address( addr );
+
+        if ( vme != NULL ) {
+            if ( !write_mode || ( write_mode && vme->writable ) ) {
+                continue;
+            }
+        }
+
         exit( -1 );
     }
 }
