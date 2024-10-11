@@ -6,6 +6,19 @@
 #include "vm/page.h"
 #include "hash.h"
 
+void init_vme( struct vm_entry *vme ) {
+    // TODO: list_elme 멤버변수 확인
+    vme->type = VM_UNINIT;
+    vme->vaddr = NULL;
+    vme->writable = false;
+    vme->is_loaded = false;
+    vme->file = NULL;
+    vme->offset = 0;
+    vme->read_bytes = 0;
+    vme->zero_bytes = 0;
+    vme->swap_slot = 0;
+}
+
 bool insert_vme( struct hash *vm, struct vm_entry *vme ) {
     // hash_insert 함수가 NULL이 아닌 값을 반환하면,
     // 즉 기존에 같은 요소가 있으면 true 반환.
