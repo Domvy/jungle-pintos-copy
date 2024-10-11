@@ -590,12 +590,19 @@ void process_close_file( int fd ) {
     }
 }
 
-#ifndef VM
-/* 이 블록의 코드는 프로젝트 2에서만 사용됩니다.
- * 프로젝트 2 전반에 걸쳐 함수를 구현하려면 #ifndef 매크로 외부에서 구현하십시오. */
+/* 사용자 가상 주소 UPAGE에서 커널 가상 주소 KPAGE로의 매핑을 페이지 테이블에 추가합니다.
+ * WRITABLE이 true일 경우, 사용자 프로세스가 페이지를 수정할 수 있고,
+ * 그렇지 않으면 읽기 전용입니다.
+ * UPAGE는 이미 매핑되어 있으면 안 됩니다.
+ * KPAGE는 palloc_get_page()로 사용자 풀에서 얻은 페이지여야 합니다.
+ * 성공 시 true를 반환하고, UPAGE가 이미 매핑되어 있거나 메모리 할당이 실패한 경우 false를 반환합니다. */
+static bool install_page( void *upage, void *kpage, bool writable ) {
+    struct thread *t = thread_current();
 
-/* load() helpers. */
-static bool install_page( void *upage, void *kpage, bool writable );
+    /* 해당 가상 주소에 이미 페이지가 없는지 확인한 후, 페이지를 매핑합니다. */
+    return ( pml4_get_page( t->pml4, upage ) == NULL && pml4_set_page( t->pml4, upage, kpage, writable ) );
+}
+
 /* FILE에서 OFS 오프셋에서 시작하는 세그먼트를 주소 UPAGE에 로드합니다.
  * 총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 초기화됩니다:
  *
@@ -623,7 +630,7 @@ static bool load_segment( struct file *file, off_t ofs, uint8_t *upage, uint32_t
 
         // vm_entry 생성 및 해시테이블에 삽입
         struct vm_entry *vme = palloc_get_page( 0 );
-        vme_init( vme );
+        init_vme( vme );
         vme->type = VM_FILE;
         vme->file = file;
         vme->offset = ofs;
@@ -655,20 +662,6 @@ static bool setup_stack( struct intr_frame *if_ ) {
     return success;
 }
 
-/* 사용자 가상 주소 UPAGE에서 커널 가상 주소 KPAGE로의 매핑을 페이지 테이블에 추가합니다.
- * WRITABLE이 true일 경우, 사용자 프로세스가 페이지를 수정할 수 있고,
- * 그렇지 않으면 읽기 전용입니다.
- * UPAGE는 이미 매핑되어 있으면 안 됩니다.
- * KPAGE는 palloc_get_page()로 사용자 풀에서 얻은 페이지여야 합니다.
- * 성공 시 true를 반환하고, UPAGE가 이미 매핑되어 있거나 메모리 할당이 실패한 경우 false를 반환합니다. */
-static bool install_page( void *upage, void *kpage, bool writable ) {
-    struct thread *t = thread_current();
-
-    /* 해당 가상 주소에 이미 페이지가 없는지 확인한 후, 페이지를 매핑합니다. */
-    return ( pml4_get_page( t->pml4, upage ) == NULL && pml4_set_page( t->pml4, upage, kpage, writable ) );
-}
-
-#else
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
@@ -678,55 +671,3 @@ static bool lazy_load_segment( struct page *page, void *aux ) {
     /* TODO: This called when the first page fault occurs on address VA. */
     /* TODO: VA is available when calling this function. */
 }
-
-/* Loads a segment starting at offset OFS in FILE at address
- * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
- * memory are initialized, as follows:
- *
- * - READ_BYTES bytes at UPAGE must be read from FILE
- * starting at offset OFS.
- *
- * - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
- *
- * The pages initialized by this function must be writable by the
- * user process if WRITABLE is true, read-only otherwise.
- *
- * Return true if successful, false if a memory allocation error
- * or disk read error occurs. */
-static bool load_segment( struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable ) {
-    ASSERT( ( read_bytes + zero_bytes ) % PGSIZE == 0 );
-    ASSERT( pg_ofs( upage ) == 0 );
-    ASSERT( ofs % PGSIZE == 0 );
-
-    while ( read_bytes > 0 || zero_bytes > 0 ) {
-        /* Do calculate how to fill this page.
-         * We will read PAGE_READ_BYTES bytes from FILE
-         * and zero the final PAGE_ZERO_BYTES bytes. */
-        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-        size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
-        /* TODO: Set up aux to pass information to the lazy_load_segment. */
-        void *aux = NULL;
-        if ( !vm_alloc_page_with_initializer( VM_ANON, upage, writable, lazy_load_segment, aux ) ) return false;
-
-        /* Advance. */
-        read_bytes -= page_read_bytes;
-        zero_bytes -= page_zero_bytes;
-        upage += PGSIZE;
-    }
-    return true;
-}
-
-/* Create a PAGE of stack at the USER_STACK. Return true on success. */
-static bool setup_stack( struct intr_frame *if_ ) {
-    bool success = false;
-    void *stack_bottom = (void *)( ( (uint8_t *)USER_STACK ) - PGSIZE );
-
-    /* TODO: Map the stack on stack_bottom and claim the page immediately.
-     * TODO: If success, set the rsp accordingly.
-     * TODO: You should mark the page is stack. */
-    /* TODO: Your code goes here */
-
-    return success;
-}
-#endif /* VM */
