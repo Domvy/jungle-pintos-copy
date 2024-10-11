@@ -654,11 +654,36 @@ static bool setup_stack( struct intr_frame *if_ ) {
     kpage = palloc_get_page( PAL_USER | PAL_ZERO );
     if ( kpage != NULL ) {
         success = install_page( ( (uint8_t *)USER_STACK ) - PGSIZE, kpage, true );
-        if ( success )
-            if_->rsp = USER_STACK;
-        else
+        if ( success ){
+            if_->rsp = USER_STACK; // 스택 포인터 설정
+
+            // 새로운 vm_entry 생성 및 메모리 할당
+            struct vm_entry *vme = malloc(sizeof(struct vm_entry));
+            init_vme(vme);
+            if (vme == NULL) {
+                palloc_free_page(kpage);
+                return false;
+            }
+
+            // vm_entry 필드 초기화
+            vme->type = VM_ANON;                        // 스택에 맞는 타입 설정 (예: VM_ANON)
+            vme->vaddr = ((uint8_t *)USER_STACK) - PGSIZE;  // 스택의 가상 주소
+            vme->writable = true;                       // 스택은 쓰기 가능
+            vme->is_loaded = true;                      // 이미 로드된 상태
+
+            // vm 해시 테이블에 vm_entry 삽입
+            if (!insert_vme(&thread_current()->spt.vm, vme)) {
+                free(vme);
+                palloc_free_page(kpage);
+                return false;
+            }
+        }
+        else{
             palloc_free_page( kpage );
+            }
     }
+  
+
     return success;
 }
 
