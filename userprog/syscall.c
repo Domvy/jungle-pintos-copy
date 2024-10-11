@@ -19,8 +19,6 @@
 #include "lib/string.h"
 #include "vm/page.h"
 
-#include "vm/page.h"
-
 void syscall_entry( void );
 void syscall_handler( struct intr_frame * );
 struct vm_entry *check_address( void *addr );
