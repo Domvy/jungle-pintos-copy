@@ -10,6 +10,7 @@ void init_vme( struct vm_entry *vme ) {
     // TODO: list_elme 멤버변수 확인
     vme->type = VM_UNINIT;
     vme->vaddr = NULL;
+    vme->page = NULL;
     vme->writable = false;
     vme->is_loaded = false;
     vme->file = NULL;

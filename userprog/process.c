@@ -614,6 +614,8 @@ static bool install_page( void *upage, void *kpage, bool writable ) {
  * 그렇지 않은 경우 읽기 전용입니다.
  *
  * 성공 시 true를 반환하고, 메모리 할당 오류나 디스크 읽기 오류가 발생하면 false를 반환합니다. */
+
+#include "threads/malloc.h"
 static bool load_segment( struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable ) {
     ASSERT( ( read_bytes + zero_bytes ) % PGSIZE == 0 );
     ASSERT( pg_ofs( upage ) == 0 );
@@ -629,8 +631,11 @@ static bool load_segment( struct file *file, off_t ofs, uint8_t *upage, uint32_t
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
         // vm_entry 생성 및 해시테이블에 삽입
-        struct vm_entry *vme = palloc_get_page( 0 );
+        struct vm_entry *vme = (struct vm_entry *)malloc( sizeof( struct vm_entry ) );
+        struct page *page = (struct page *)malloc( sizeof( struct page ) );
         init_vme( vme );
+        vme->vaddr = upage;
+        page->va = upage;
         vme->type = VM_FILE;
         vme->file = file;
         vme->offset = ofs;

@@ -59,23 +59,24 @@ err:
     return false;
 }
 
+#include "vm/page.h"
+
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *spt_find_page( struct supplemental_page_table *spt UNUSED, void *va UNUSED ) {
-    struct page *page = NULL;
-    /* TODO: Fill this function. */
-
+    struct vm_entry *vme = find_vme( va );
+    struct page *page = vme->page;
     return page;
 }
 
 /* Insert PAGE into spt with validation. */
 bool spt_insert_page( struct supplemental_page_table *spt UNUSED, struct page *page UNUSED ) {
-    int succ = false;
-    /* TODO: Fill this function. */
-
-    return succ;
+    struct vm_entry *vme = find_vme( page->va );
+    return insert_vme( &spt->vm, vme );
 }
 
 void spt_remove_page( struct supplemental_page_table *spt, struct page *page ) {
+    struct vm_entry *vme = find_vme( page->va );
+    delete_vme( &spt->vm, vme );
     vm_dealloc_page( page );
     return true;
 }

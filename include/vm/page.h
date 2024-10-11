@@ -5,6 +5,7 @@
 struct vm_entry {
     uint8_t type;
     void *vaddr;
+    struct page *page;
     bool writable;
     bool is_loaded;
     struct file *file;
