@@ -19,9 +19,11 @@
 #include "lib/string.h"
 #include "vm/page.h"
 
+#include "vm/page.h"
+
 void syscall_entry( void );
 void syscall_handler( struct intr_frame * );
-void check_address( void *addr );
+struct vm_entry *check_address( void *addr );
 void check_address_buffer( void *buffer, unsigned size, bool write_mode, void *esp UNUSED );
 void halt( void );
 void exit( int status );
@@ -145,7 +147,7 @@ void exit( int status ) {
     struct thread *current = thread_current();
     current->exit_status = status;
     /* 프로세스 종료 메시지 출력,
-    출력 양식: “프로세스이름 : exit(종료상태 )” */
+    출력 양식: "프로세스이름 : exit(종료상태 )" */
     printf( "%s: exit(%d)\n", current->name, status );
     /* 스레드 종료 */
     thread_exit();
@@ -328,9 +330,14 @@ void close( int fd ) {
     process_close_file( fd );
 }
 
-void check_address( void *addr ) {
-    if ( addr == NULL || !is_user_vaddr( addr ) ) {
-        exit( -1 );
+struct vm_entry *check_address( void *addr ) {
+    // if ( addr == NULL || !is_user_vaddr( addr ) ) {
+    //     exit( -1 );
+    // }
+    if ( addr != NULL ) {
+        struct vm_entry *vme = find_vme( addr );
+        if ( vme != NULL )
+            return vme;
     }
 }
 
