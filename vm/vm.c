@@ -107,9 +107,10 @@ static void vm_stack_growth( void *addr UNUSED ) {}
 static bool vm_handle_wp( struct page *page UNUSED ) {}
 
 /* Return true on success */
-bool vm_try_handle_fault( struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED ) {
+bool vm_try_handle_fault( struct intr_frame *f UNUSED, void *uva UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED ) {
     struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
-    struct page *page = NULL;
+    struct vm_entry *vme = find_vme( uva );
+    struct page *page = vme->page;
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
 
@@ -151,18 +152,67 @@ bool vm_claim_page( void *va UNUSED ) {
     return vm_do_claim_page( page );
 }
 
+void load_file( void *kva, struct vm_entry *vme ) {
+    // static bool load_segment( struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable ) {
+
+    struct file *file = vme->file;
+    off_t ofs = vme->offset;
+    uint8_t *upage = vme->vaddr;
+    uint32_t read_bytes = vme->read_bytes;
+    uint32_t zero_bytes = vme->zero_bytes;
+    bool writable = vme->writable;
+
+    ASSERT( ( read_bytes + zero_bytes ) % PGSIZE == 0 );
+    ASSERT( pg_ofs( upage ) == 0 );
+    ASSERT( ofs % PGSIZE == 0 );
+
+    file_seek( file, ofs );
+    while ( read_bytes > 0 || zero_bytes > 0 ) {
+        /* 이 페이지를 채우는 방법을 계산합니다.
+         * FILE에서 PAGE_READ_BYTES 바이트를 읽고
+         * 마지막 PAGE_ZERO_BYTES 바이트를 0으로 채웁니다. */
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+        /* 메모리 페이지를 가져옵니다. */
+        uint8_t *kpage = palloc_get_page( PAL_USER );
+        if ( kpage == NULL ) return false;
+
+        /* 이 페이지를 로드합니다. */
+        if ( file_read( file, kpage, page_read_bytes ) != (int)page_read_bytes ) {
+            palloc_free_page( kpage );
+            return false;
+        }
+        memset( kpage + page_read_bytes, 0, page_zero_bytes );
+
+        /* 프로세스의 주소 공간에 페이지를 추가합니다. */
+        if ( !install_page( upage, kpage, writable ) ) {
+            printf( "fail\n" );
+            palloc_free_page( kpage );
+            return false;
+        }
+
+        /* 다음으로 진행합니다. */
+        read_bytes -= page_read_bytes;
+        zero_bytes -= page_zero_bytes;
+        upage += PGSIZE;
+    }
+    return true;
+}
+
 /* Claim the PAGE and set up the mmu. */
-static bool vm_do_claim_page( struct page *uva ) {  // kva = frame / uva = page
-    struct vm_entry *vme = find_vme( uva );
+static bool vm_do_claim_page( struct page *page ) {  // kva = frame / uva = page
+    struct vm_entry *vme = find_vme( page );
     struct frame *kva = vm_get_frame();
 
     /* Set links */
-    kva->page = uva;
-    uva->frame = kva;
+    kva->page = page;
+    page->frame = kva;
 
     /* Insert page table entry to map page's VA to frame's PA. */
-    install_page( uva, kva, vme->writable );
-    return swap_in( uva, kva->kva );
+    load_file( kva, vme );
+    install_page( page, kva, vme->writable );
+    return swap_in( page, kva->kva );
 }
 
 /* Initialize new supplemental page table */
