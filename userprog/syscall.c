@@ -134,7 +134,10 @@ void syscall_handler( struct intr_frame *f UNUSED ) {
 }
 
 int wait( int pid ) { return process_wait( pid ); }
-int fork( const char *thread_name, struct intr_frame *f ) { return process_fork( thread_name, f ); }
+int fork( const char *thread_name, struct intr_frame *f ) {
+    check_address( thread_name );
+    return process_fork( thread_name, f );
+}
 
 void halt( void ) { power_off(); }
 void exit( int status ) {
@@ -237,7 +240,7 @@ int read( int fd, void *buffer, unsigned size ) {
     if ( fd == STDOUT_FILENO ) return -1;
 
     // 버퍼의 주소를 검증한다.
-    check_address( buffer );
+    check_address_buffer( buffer, size, false, NULL );
 
     // 데이터를 저장할 위치를 가리킨다.
     char *ptr = (char *)buffer;
@@ -276,7 +279,7 @@ int write( int fd, void *buffer, unsigned size ) {
     if ( fd == STDIN_FILENO ) return -1;
 
     // 버퍼의 주소를 검증한다.
-    check_address( buffer );
+    check_address_buffer( buffer, size, true, NULL );
     int bytes_write = 0;
 
     // 파일 시스템 작업을 하는 동안, 락을 걸어준다.
