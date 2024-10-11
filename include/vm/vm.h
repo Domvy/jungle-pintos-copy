@@ -36,7 +36,7 @@ enum vm_type {
 struct page_operations;
 struct thread;
 
-#define VM_TYPE( type ) ( (type)&7 )
+#define VM_TYPE( type ) ( ( type ) & 7 )
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
@@ -107,12 +107,5 @@ bool vm_alloc_page_with_initializer( enum vm_type type, void *upage, bool writab
 void vm_dealloc_page( struct page *page );
 bool vm_claim_page( void *va );
 enum vm_type page_get_type( struct page *page );
-
-// ================ NEW ================
-// uint64_t vm_hash_func(const struct hash_elem *e, void *aux);
-// bool vm_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux);
-// int delete_vme(struct hash *vm, struct vm_entry *vme);
-// void destructor_per_elem(struct hash_elem *e, void *aux);
-// void vm_destroy(struct hash *vm);
 
 #endif /* VM_VM_H */
