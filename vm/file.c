@@ -1,6 +1,5 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
-
 #include "vm/vm.h"
 #include "vaddr.h"
 #include "process.h"
@@ -40,17 +39,16 @@ static void file_backed_destroy( struct page *page ) { struct file_page *file_pa
 
 /* Do the mmap */
 void *do_mmap( void *addr, size_t length, int writable, struct file *file, off_t offset ) {
-
-    struct file *copy_file = file_reopen(file);
+    struct file *copy_file = file_reopen( file );
     void *start_addr = addr;
-    while (length > 0){
+    while ( length > 0 ) {
         size_t page_read_bytes = length < PGSIZE ? length : PGSIZE;
 
         struct aux *aux = (struct aux *)malloc( sizeof( struct aux ) );
         aux->file = copy_file;
         aux->offset = offset;
         aux->page_read_bytes = page_read_bytes;
-        
+
         if ( !vm_alloc_page_with_initializer( VM_FILE, addr, writable, lazy_load_segment, aux ) )
             return false;
 
@@ -60,8 +58,6 @@ void *do_mmap( void *addr, size_t length, int writable, struct file *file, off_t
     }
     return start_addr;
 
-}
-
     // TODO: list_elem 추가
     // loop 돌면서, prev_page->next_page = cur_page
     // 원형, 단방향 linked list (따로 list head 안둘 예정)
@@ -69,7 +65,6 @@ void *do_mmap( void *addr, size_t length, int writable, struct file *file, off_t
 
 #include "threads/mmu.h"
 #include "kernel/list.h"
-
 
 /* Do the munmap */
 void do_munmap( void *addr ) {
