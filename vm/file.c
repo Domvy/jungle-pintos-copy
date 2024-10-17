@@ -1,8 +1,8 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
-#include "vaddr.h"
-#include "process.h"
+#include "threads/vaddr.h"
+#include "userprog/process.h"
 
 static bool file_backed_swap_in( struct page *page, void *kva );
 static bool file_backed_swap_out( struct page *page );
@@ -23,7 +23,6 @@ void vm_file_init( void ) {}
 bool file_backed_initializer( struct page *page, enum vm_type type, void *kva ) {
     /* Set up the handler */
     page->operations = &file_ops;
-    // TODO : page 구조체에 struct file_page의 내용을 여기서 채워야하나?
 
     struct file_page *file_page = &page->file;
 }
@@ -41,6 +40,11 @@ static void file_backed_destroy( struct page *page ) { struct file_page *file_pa
 void *do_mmap( void *addr, size_t length, int writable, struct file *file, off_t offset ) {
     struct file *copy_file = file_reopen( file );
     void *start_addr = addr;
+
+    struct page *head_page = NULL;
+    struct page *prev_page = NULL;
+    struct page *cur_page = NULL;
+
     while ( length > 0 ) {
         size_t page_read_bytes = length < PGSIZE ? length : PGSIZE;
 
@@ -49,18 +53,29 @@ void *do_mmap( void *addr, size_t length, int writable, struct file *file, off_t
         aux->offset = offset;
         aux->page_read_bytes = page_read_bytes;
 
-        if ( !vm_alloc_page_with_initializer( VM_FILE, addr, writable, lazy_load_segment, aux ) )
-            return false;
+        // Create UNINIT page
+        struct page *cur_page = vm_alloc_page_with_initializer( VM_FILE, addr, writable, lazy_load_segment, aux );
+        if ( !cur_page ) return false;
+        if ( head_page == NULL )
+            head_page = cur_page;
+
+        // Add file info into page
+        cur_page->file.file = copy_file;
+        cur_page->file.offset = offset;
+        cur_page->file.page_read_bytes = page_read_bytes;
+        cur_page->file.next_page = NULL;
+        // Link same file group
+        prev_page->file.next_page = cur_page;
+        prev_page = cur_page;
 
         length -= page_read_bytes;
         addr += PGSIZE;
         offset += page_read_bytes;
     }
-    return start_addr;
 
-    // TODO: list_elem 추가
-    // loop 돌면서, prev_page->next_page = cur_page
-    // 원형, 단방향 linked list (따로 list head 안둘 예정)
+    cur_page->file.next_page = head_page;
+
+    return start_addr;
 }
 
 #include "threads/mmu.h"
@@ -87,11 +102,11 @@ void do_munmap( void *addr ) {
     }
 
     // delete page, frame
-    struct page *next_page = list_entry( &page->file.next_page, struct page, file.next_page );
     spt_remove_page( &t->spt, page );
     list_remove( frame );
 
     // iter next page - same file backed
+    struct page *next_page = page->file.next_page;
     if ( next_page ) {
         do_munmap( next_page->va );
     }

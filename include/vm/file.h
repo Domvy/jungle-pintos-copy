@@ -2,7 +2,6 @@
 #define VM_FILE_H
 #include "filesys/file.h"
 #include "vm/vm.h"
-#include "kernel/list.h"
 
 struct page;
 enum vm_type;
@@ -11,7 +10,7 @@ struct file_page {
     struct file *file;
     off_t offset;
     size_t page_read_bytes;
-    struct list_elem next_page;
+    struct page *next_page;
 };
 
 void vm_file_init( void );
