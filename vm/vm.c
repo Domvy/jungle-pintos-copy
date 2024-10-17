@@ -8,6 +8,7 @@
 #include "stddef.h"
 #include <threads/mmu.h>
 #include <stdlib.h>
+#include "kernel/list.h"
 
 static struct list frame_table;
 
@@ -45,7 +46,7 @@ static struct frame *vm_evict_frame( void );
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
-bool vm_alloc_page_with_initializer( enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux ) {
+struct page *vm_alloc_page_with_initializer( enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux ) {
     ASSERT( VM_TYPE( type ) != VM_UNINIT )
 
     struct supplemental_page_table *spt = &thread_current()->spt;
@@ -61,15 +62,19 @@ bool vm_alloc_page_with_initializer( enum vm_type type, void *upage, bool writab
             case VM_ANON:
                 initializer = anon_initializer;
                 break;
+            case VM_FILE:
+                initializer = file_backed_initializer;
         }
 
         uninit_new( page, upage, init, type, aux, initializer );
         page->writable = writable;
 
-        return spt_insert_page( spt, page );
+        spt_insert_page( spt, page );
+
+        return page;
     }
 err:
-    return false;
+    return NULL;
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
